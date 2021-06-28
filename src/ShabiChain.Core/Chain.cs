@@ -28,29 +28,15 @@ namespace ShabiChain.Core
         {
             get
             {
-                lock (this.chainLock)
-                {
-                    var current = this.activeChainNode;
-                    while(current != null)
-                    {
-                        Debug.Assert(this.chainNodes.ContainsKey(current.ID));
-                        yield return current;
-                        if (current.IsRootNode)
-                        {
-                            break;
-                        }
-                        else
-                        {
-                            current = this.chainNodes[current.PreviousChainNodeID!];
-                        }
-                    }
-                }
+                return this.GetReversedChainFromNode(this.activeChainNode);
             }
         }
 
-        public void ConnectChainNode(T node)
+        public event EventHandler<ActiveChainChangeEventArgs>? ActiveChainChangeEvent;
+
+        public virtual void ConnectChainNode(T node)
         {
-            Debug.Assert(!node.IsRootNode);
+            Debug.Assert(!node.IsRootNode, $"node {node.ID} is root node");
             this.ValidateBlock(node);
 
             lock (this.chainLock)
@@ -74,6 +60,10 @@ namespace ShabiChain.Core
 
                     if (node.Height > this.activeChainNode.Height)
                     {
+                        if (node.PreviousChainNodeID != this.activeChainNode.PreviousChainNodeID)
+                        {
+                            this.ActiveChainChangeEvent?.Invoke(this, new ActiveChainChangeEventArgs(this.activeChainNode, node));
+                        }
                         this.activeChainNode = node;
                     }
                 }
@@ -84,19 +74,47 @@ namespace ShabiChain.Core
             }
         }
 
-        public void DisconnectChainNode(T node)
+        public virtual void DisconnectChainNode(T node)
         {
-            Debug.Assert(this.leaveNodes.ContainsKey(node.ID));
-            Debug.Assert(this.leaveNodes.ContainsKey(node.ID));
+            Debug.Assert(this.leaveNodes.ContainsKey(node.ID), $"node {node.ID} is not leaf node");
             Debug.Assert(node != root);
 
             lock (this.chainLock)
             {
                 this.leaveNodes.Remove(node.ID);
-
+                var previousNode = this.chainNodes[node.PreviousChainNodeID!];
+                this.leaveNodes[previousNode.ID] = previousNode;
                 if(node == this.activeChainNode)
                 {
-                    this.activeChainNode = this.leaveNodes.OrderByDescending(kv => kv.Value.Height).First().Value;
+                    var newActiveChainNode = this.leaveNodes.OrderByDescending(kv => kv.Value.Height).First().Value;
+                    if(newActiveChainNode.ID != node.PreviousChainNodeID)
+                    {
+                        this.ActiveChainChangeEvent?.Invoke(this, new ActiveChainChangeEventArgs(this.activeChainNode, newActiveChainNode));
+                    }
+                    this.activeChainNode = newActiveChainNode;
+                }
+            }
+        }
+
+        public IEnumerable<T> GetReversedChainFromNode(T node)
+        {
+            if (!this.chainNodes.ContainsKey(node.ID))
+            {
+                throw new ChainNodeException($"{node.ID} not exist", node);
+            }
+
+            var current = node;
+            while (current != null)
+            {
+                Debug.Assert(this.chainNodes.ContainsKey(current.ID));
+                yield return current;
+                if (current.IsRootNode)
+                {
+                    break;
+                }
+                else
+                {
+                    current = this.chainNodes[current.PreviousChainNodeID!];
                 }
             }
         }

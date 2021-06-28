@@ -43,12 +43,51 @@ namespace ShabiChain.Core.Tests
             block2.PreviousChainNodeID = root.ID;
             var block3 = new SimpleBlock("3");
             block3.PreviousChainNodeID = block2.ID;
+            chain.ActiveChainChangeEvent += (object sender, ActiveChainChangeEventArgs e) =>
+            {
+                e.Old.ID.Should().Be("1");
+                e.New.ID.Should().Be("3");
+            };
+
             chain.ConnectChainNode(block2);
             chain.ConnectChainNode(block3);
 
             chain.ReversedActiveChain.Count().Should().Be(3);
             chain.ReversedActiveChain.First().Should().Be(block3);
             chain.ReversedActiveChain.First().Height.Should().Be(2);
+        }
+
+        [Fact]
+        public void Chain_should_reorg_if_disconnect()
+        {
+            var root = new SimpleBlock("0");
+            var chain = new Chain<SimpleBlock>(root);
+            var block1 = new SimpleBlock("1");
+            block1.PreviousChainNodeID = root.ID;
+            chain.ConnectChainNode(block1);
+            var block2 = new SimpleBlock("2");
+            block2.PreviousChainNodeID = root.ID;
+            var block3 = new SimpleBlock("3");
+            block3.PreviousChainNodeID = block2.ID;
+
+            chain.ConnectChainNode(block2);
+            chain.ConnectChainNode(block3);
+
+            chain.ReversedActiveChain.Count().Should().Be(3);
+            chain.ReversedActiveChain.First().Should().Be(block3);
+            chain.ReversedActiveChain.First().Height.Should().Be(2);
+
+            chain.ActiveChainChangeEvent += (object sender, ActiveChainChangeEventArgs e) =>
+            {
+                e.Old.ID.Should().Be("3");
+                e.New.ID.Should().Be("1");
+            };
+
+            chain.DisconnectChainNode(block3);
+            chain.DisconnectChainNode(block2);
+            chain.ReversedActiveChain.Count().Should().Be(2);
+            chain.ReversedActiveChain.First().Should().Be(block1);
+            chain.ReversedActiveChain.First().Height.Should().Be(1);
         }
 
         [Fact]
